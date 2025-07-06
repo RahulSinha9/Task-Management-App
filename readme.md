@@ -91,20 +91,6 @@ TaskFlow is a modern, full-stack project and task management application designe
 ### Environment Variables
 
 ```
-MONGODB_URI=mongodb://localhost:27017/taskflow
-DATABASE_NAME=taskflow
-JWT_SECRET=your_jwt_secret
-JWT_EXPIRY=7d
-REFRESH_TOKEN_EXPIRY=30d
-REFRESH_TOKEN_SECRET=your_refresh_token_secret
-CLOUDINARY_CLOUD_NAME=your_cloud_name
-CLOUDINARY_API_KEY=your_api_key
-CLOUDINARY_API_SECRET=your_api_secret
-EMAIL_SERVICE=gmail
-EMAIL_USERNAME=your_email@gmail.com
-EMAIL_PASSWORD=your_app_password
-VITE_API_BASE_URL=http://localhost:4000/api/v1
-
 Frontend/
 
 ├── public/             # Public assets
