@@ -5,8 +5,8 @@ export const sendMail = async (options) => {
     const mailGenerator = new Mailgen({
         theme: "default",
         product: {
-            name: "Task manager",
-            link: "https://mailgen.js/",
+            name: "TaskFlow",
+            link: "https://project-task-management-app.vercel.app/home",
         },
     });
 
@@ -16,7 +16,7 @@ export const sendMail = async (options) => {
     var emailText = mailGenerator.generatePlaintext(options.mailGenContent);
 
     const mail = {
-        from: '"Task Manager" <taskmanager@example.email>',
+        from: '"TaskFlow" <support@taskflow.com>',
         to: options.email,
         subject: options.subject,
         text: emailText,
@@ -44,7 +44,7 @@ export const emailVerificationMailGenerator = (username, verificationUrl) => {
     return {
         body: {
             name: username,
-            intro: "Welcome to Task Manager! We're thrilled to have you join our community.",
+            intro: "Welcome to TaskFlow! We're thrilled to have you join our community.",
             action: {
                 instructions:
                     "To activate your account and start managing your tasks, please verify your email address by clicking the button below:",
@@ -63,7 +63,7 @@ export const forgotPasswordMailGenContent = (username, passwordResetUrl) => {
     return {
         body: {
             name: username,
-            intro: "We received a request to reset your password for your Task Manager account.",
+            intro: "We received a request to reset your password for your TaskFlow account.",
             action: {
                 instructions:
                     "Click the button below to reset your password. If you did not request a password reset, you can safely ignore this email.",
