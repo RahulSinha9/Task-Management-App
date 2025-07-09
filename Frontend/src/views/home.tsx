@@ -24,6 +24,8 @@ import {
     Target,
     Menu,
     X,
+    LoaderCircle,
+    Github,
 } from "lucide-react";
 import { Link } from "react-router";
 import { API_HEALTH_ENDPOINTS } from "@/api/endpoints";
@@ -31,6 +33,8 @@ import { API_HEALTH_ENDPOINTS } from "@/api/endpoints";
 const TaskFlowLanding = () => {
     const [isVisible, setIsVisible] = useState(false);
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+    const [isServerAwake, setIsServerAwake] = useState(false);
+    const [isServerError, setIServerError] = useState(false);
 
     useEffect(() => {
         setIsVisible(true);
@@ -42,6 +46,11 @@ const TaskFlowLanding = () => {
 
             if (response.data.statusCode === 200) {
                 console.log("Health check successful");
+                setIsServerAwake(true);
+            } else {
+                console.log("Health check failed");
+                setIsServerAwake(true);
+                setIServerError(true);
             }
         };
 
@@ -147,15 +156,36 @@ const TaskFlowLanding = () => {
                             >
                                 About
                             </Button>
-                            <Button
-                                variant="outline"
-                                className="border-slate-600 text-slate-300 hover:bg-slate-800 hover:text-white"
-                            >
-                                <Link to="/login">Sign In</Link>
-                            </Button>
-                            <Button className="bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white">
-                                <Link to={"/app/dashboard"}> Get Started </Link>
-                            </Button>
+                            {!isServerAwake && !isServerError ? (
+                                <div className="flex items-center gap-2 text-muted-foreground">
+                                    <LoaderCircle className="h-4 w-4 animate-spin" />
+                                    <span>Connecting to server...</span>
+                                </div>
+                            ) : !isServerAwake ? (
+                                "Server Unavailable"
+                            ) : isServerError ? (
+                                "Server Error"
+                            ) : (
+                                <>
+                                    <Button
+                                        disabled={
+                                            !isServerAwake || isServerError
+                                                ? true
+                                                : false
+                                        }
+                                        variant="outline"
+                                        className="justify-start border-slate-600 text-slate-300 hover:bg-slate-800 hover:text-white"
+                                    >
+                                        <Link to="/login">Sign In</Link>
+                                    </Button>
+                                    <Button className="bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white">
+                                        <Link to={"/app/dashboard"}>
+                                            {" "}
+                                            Get Started{" "}
+                                        </Link>
+                                    </Button>
+                                </>
+                            )}
                         </div>
 
                         {/* Mobile Menu Button */}
@@ -194,18 +224,36 @@ const TaskFlowLanding = () => {
                                 >
                                     About
                                 </Button>
-                                <Button
-                                    variant="outline"
-                                    className="justify-start border-slate-600 text-slate-300 hover:bg-slate-800 hover:text-white"
-                                >
-                                    <Link to="/login">Sign In</Link>
-                                </Button>
-                                <Button className="justify-start bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white">
-                                    <Link to={"/app/dashboard"}>
-                                        {" "}
-                                        Get Started{" "}
-                                    </Link>
-                                </Button>
+                                {!isServerAwake && !isServerError ? (
+                                    <div className="flex items-center gap-2 text-muted-foreground">
+                                        <LoaderCircle className="h-4 w-4 animate-spin" />
+                                        <span>Connecting to server...</span>
+                                    </div>
+                                ) : !isServerAwake ? (
+                                    "Server Unavailable"
+                                ) : isServerError ? (
+                                    "Server Error"
+                                ) : (
+                                    <>
+                                        <Button
+                                            disabled={
+                                                !isServerAwake || isServerError
+                                                    ? true
+                                                    : false
+                                            }
+                                            variant="outline"
+                                            className="justify-start border-slate-600 text-slate-300 hover:bg-slate-800 hover:text-white"
+                                        >
+                                            <Link to="/login">Sign In</Link>
+                                        </Button>
+                                        <Button className="bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white">
+                                            <Link to={"/app/dashboard"}>
+                                                {" "}
+                                                Get Started{" "}
+                                            </Link>
+                                        </Button>
+                                    </>
+                                )}
                             </div>
                         </div>
                     )}
@@ -258,6 +306,20 @@ const TaskFlowLanding = () => {
                                 >
                                     <Play className="w-4 h-4 lg:w-5 lg:h-5 mr-2" />
                                     Watch Demo
+                                </Button>
+                                <Button
+                                    size="lg"
+                                    variant="outline"
+                                    className="border-slate-600 text-slate-300 hover:bg-slate-800 hover:text-white text-base lg:text-lg px-6 lg:px-8 py-3 lg:py-4"
+                                    onClick={() => {
+                                        window.open(
+                                            "https://github.com/patiljay956/Task-Management-App",
+                                            "_blank",
+                                        );
+                                    }}
+                                >
+                                    <Github className="w-4 h-4 lg:w-5 lg:h-5 mr-2" />
+                                    Github
                                 </Button>
                             </div>
 
