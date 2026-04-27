@@ -64,11 +64,10 @@ services:
       retries: 3
       start_period: 20s
     logging:
-      driver: "awslogs"
+      driver: "json-file"
       options:
-        awslogs-group: "/arm-task/backend"
-        awslogs-region: "ap-south-1"
-        awslogs-stream-prefix: "backend"
+        max-size: "10m"
+        max-file: "3"
 
   frontend:
     image: ${ECR_REGISTRY}/arm-task-frontend:${IMAGE_TAG}
@@ -87,8 +86,7 @@ services:
       timeout: 5s
       retries: 3
     logging:
-      driver: "awslogs"
+      driver: "json-file"
       options:
-        awslogs-group: "/arm-task/frontend"
-        awslogs-region: "ap-south-1"
-        awslogs-stream-prefix: "frontend"
+        max-size: "10m"
+        max-file: "3"
