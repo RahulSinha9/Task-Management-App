@@ -556,6 +556,39 @@ resource "aws_instance" "staging" {
   tags = { Name = "arm-task-staging", Project = "arm-task", Environment = "staging" }
 }
 
+# ── Production domain listener rules ─────────────────────────
+resource "aws_lb_listener_rule" "prod_frontend" {
+  listener_arn = aws_lb_listener.https.arn
+  priority     = 20
+
+  condition {
+    host_header { values = ["arm-task.devopslabx.com"] }
+  }
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.frontend.arn
+  }
+}
+
+resource "aws_lb_listener_rule" "prod_api" {
+  listener_arn = aws_lb_listener.https.arn
+  priority     = 19
+
+  condition {
+    host_header { values = ["arm-task.devopslabx.com"] }
+  }
+
+  condition {
+    path_pattern { values = ["/api/*"] }
+  }
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.backend.arn
+  }
+}
+
 # ── Application Load Balancer ─────────────────────────────────
 resource "aws_lb" "main" {
   name               = "arm-task-alb"
@@ -566,7 +599,6 @@ resource "aws_lb" "main" {
   tags               = { Name = "arm-task-alb" }
 }
 
-# ── Target Groups ─────────────────────────────────────────────
 resource "aws_lb_target_group" "frontend" {
   name     = "arm-task-frontend-tg"
   port     = 3000
@@ -578,7 +610,6 @@ resource "aws_lb_target_group" "frontend" {
     unhealthy_threshold = 3
     interval            = 30
   }
-  tags = { Name = "arm-task-frontend-tg" }
 }
 
 resource "aws_lb_target_group" "backend" {
@@ -592,10 +623,8 @@ resource "aws_lb_target_group" "backend" {
     unhealthy_threshold = 3
     interval            = 30
   }
-  tags = { Name = "arm-task-backend-tg" }
 }
 
-# ── Target Group Attachments (Production EC2) ─────────────────
 resource "aws_lb_target_group_attachment" "frontend" {
   target_group_arn = aws_lb_target_group.frontend.arn
   target_id        = aws_instance.app.id
@@ -608,47 +637,29 @@ resource "aws_lb_target_group_attachment" "backend" {
   port             = 4000
 }
 
-# ── HTTP Listener (port 80) ───────────────────────────────────
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.main.arn
   port              = 80
   protocol          = "HTTP"
-
   default_action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.frontend.arn
   }
 }
 
-# ── Listener Rule — /api/* goes to backend ────────────────────
-resource "aws_lb_listener_rule" "api" {
-  listener_arn = aws_lb_listener.http.arn
-  priority     = 100
-  condition {
-    path_pattern { values = ["/api/*"] }
-  }
-  action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.backend.arn
-  }
-}
-
-# ── Update HTTP listener to redirect to HTTPS ─────────────────
 resource "aws_lb_listener" "https" {
   load_balancer_arn = aws_lb.main.arn
   port              = 443
   protocol          = "HTTPS"
   ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"
   certificate_arn   = "arn:aws:acm:ap-south-1:773802564338:certificate/251af80d-4585-49d7-aae1-c374b18e21de"
-
   default_action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.frontend.arn
   }
 }
 
-# ── HTTPS rule — /api/* goes to backend ──────────────────────
-resource "aws_lb_listener_rule" "api_https" {
+resource "aws_lb_listener_rule" "api" {
   listener_arn = aws_lb_listener.https.arn
   priority     = 100
   condition {
@@ -660,26 +671,6 @@ resource "aws_lb_listener_rule" "api_https" {
   }
 }
 
-# ── HTTP to HTTPS redirect ────────────────────────────────────
-resource "aws_lb_listener_rule" "http_redirect" {
-  listener_arn = aws_lb_listener.http.arn
-  priority     = 1
-
-  condition {
-    path_pattern { values = ["/*"] }
-  }
-
-  action {
-    type = "redirect"
-    redirect {
-      port        = "443"
-      protocol    = "HTTPS"
-      status_code = "HTTP_301"
-    }
-  }
-}
-
-# ── Staging Target Groups ─────────────────────────────────────
 resource "aws_lb_target_group" "staging_frontend" {
   name     = "arm-task-staging-frontend-tg"
   port     = 3000
@@ -691,7 +682,6 @@ resource "aws_lb_target_group" "staging_frontend" {
     unhealthy_threshold = 3
     interval            = 30
   }
-  tags = { Name = "arm-task-staging-frontend-tg" }
 }
 
 resource "aws_lb_target_group" "staging_backend" {
@@ -705,10 +695,8 @@ resource "aws_lb_target_group" "staging_backend" {
     unhealthy_threshold = 3
     interval            = 30
   }
-  tags = { Name = "arm-task-staging-backend-tg" }
 }
 
-# ── Staging Target Group Attachments ─────────────────────────
 resource "aws_lb_target_group_attachment" "staging_frontend" {
   target_group_arn = aws_lb_target_group.staging_frontend.arn
   target_id        = aws_instance.staging.id
@@ -721,15 +709,12 @@ resource "aws_lb_target_group_attachment" "staging_backend" {
   port             = 4000
 }
 
-# ── HTTPS Listener Rule for staging subdomain ─────────────────
 resource "aws_lb_listener_rule" "staging_frontend" {
   listener_arn = aws_lb_listener.https.arn
   priority     = 10
-
   condition {
     host_header { values = ["staging-arm-task.devopslabx.com"] }
   }
-
   action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.staging_frontend.arn
@@ -739,15 +724,12 @@ resource "aws_lb_listener_rule" "staging_frontend" {
 resource "aws_lb_listener_rule" "staging_api" {
   listener_arn = aws_lb_listener.https.arn
   priority     = 9
-
   condition {
     host_header { values = ["staging-arm-task.devopslabx.com"] }
   }
-
   condition {
     path_pattern { values = ["/api/*"] }
   }
-
   action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.staging_backend.arn

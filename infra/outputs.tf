@@ -41,7 +41,3 @@ output "staging_instance_id" {
 output "staging_private_ip" {
   value = aws_instance.staging.private_ip
 }
-
-output "alb_dns_name" {
-  value = aws_lb.main.dns_name
-}
