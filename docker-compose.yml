@@ -1,38 +1,48 @@
+version: "3.9"
+
+networks:
+  arm-task-net:
+    driver: bridge
+
+volumes:
+  mongo_data:
+    driver: local
+
 services:
+
   mongodb:
-    image: mongo:latest
-    container_name: mongodb
-    restart: always
+    image: mongo:7
+    container_name: arm-task-mongo
+    restart: unless-stopped
     environment:
-      MONGO_INITDB_ROOT_USERNAME: admin
-      MONGO_INITDB_ROOT_PASSWORD: securepassword123
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD}
       MONGO_INITDB_DATABASE: taskflow
-    ports:
-      - "27017:27017"
     volumes:
-      - my_mongo_volume:/data/db
+      - mongo_data:/data/db
     networks:
-      - app_network
+      - arm-task-net
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
 
   backend:
-    build:
-      context: ./Backend
-      dockerfile: Dockerfile
-    container_name: backend
-    restart: always
-    ports:
-      - "4000:4000"
+    image: ${ECR_REGISTRY}/arm-task-backend:${IMAGE_TAG}
+    container_name: arm-task-backend
+    restart: unless-stopped
     environment:
+      NODE_ENV: production
       PORT: 4000
-      MONGO_URI: mongodb://admin:securepassword123@mongodb:27017
-      DATABASE_NAME: taskflow?authSource=admin
-      JWT_SECRET: your_jwt_secret
-      JWT_EXPIRY: 7d
-      ACCESS_TOKEN_SECRET: your_jwt_secret
-      ACCESS_TOKEN_EXPIRY: 7d
-      REFRESH_TOKEN_EXPIRY: 30d
-      REFRESH_TOKEN_SECRET: your_refresh_token_secret
-      FRONTEND_URL: http://localhost:3000
+      MONGO_URI: mongodb://${MONGO_USER}:${MONGO_PASSWORD}@mongodb:27017/taskflow?authSource=admin
+      DATABASE_NAME: taskflow
+      ACCESS_TOKEN_SECRET: ${ACCESS_TOKEN_SECRET}
+      REFRESH_TOKEN_SECRET: ${REFRESH_TOKEN_SECRET}
+      ACCESS_TOKEN_EXPIRY: ${ACCESS_TOKEN_EXPIRY}
+      REFRESH_TOKEN_EXPIRY: ${REFRESH_TOKEN_EXPIRY}
+      FRONTEND_URL: ${FRONTEND_URL}
       CLOUDINARY_CLOUD_NAME: ${CLOUDINARY_CLOUD_NAME}
       CLOUDINARY_API_KEY: ${CLOUDINARY_API_KEY}
       CLOUDINARY_API_SECRET: ${CLOUDINARY_API_SECRET}
@@ -40,33 +50,45 @@ services:
       MAILTRAP_PORT: ${MAILTRAP_PORT}
       MAILTRAP_USER: ${MAILTRAP_USER}
       MAILTRAP_PASSWORD: ${MAILTRAP_PASSWORD}
+    ports:
+      - "4000:4000"
     depends_on:
-      - mongodb
+      mongodb:
+        condition: service_healthy
     networks:
-      - app_network
+      - arm-task-net
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:4000/api/v1/healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    logging:
+      driver: "awslogs"
+      options:
+        awslogs-group: "/arm-task/backend"
+        awslogs-region: "ap-south-1"
+        awslogs-stream-prefix: "backend"
 
   frontend:
-    build:
-      context: ./Frontend
-      dockerfile: Dockerfile
-      args:
-        VITE_API_BASE_URL: http://localhost:4000/api/v1
-    container_name: frontend
-    restart: always
+    image: ${ECR_REGISTRY}/arm-task-frontend:${IMAGE_TAG}
+    container_name: arm-task-frontend
+    restart: unless-stopped
     ports:
       - "3000:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     networks:
-      - app_network
-
-networks:
-  app_network:
-    driver: bridge
-
-volumes:
-  mongodb_data:
-    driver: local
-
-  my_mongo_volume:
-    driver: local
+      - arm-task-net
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:80"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: "awslogs"
+      options:
+        awslogs-group: "/arm-task/frontend"
+        awslogs-region: "ap-south-1"
+        awslogs-stream-prefix: "frontend"

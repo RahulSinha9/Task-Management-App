@@ -1,0 +1,203 @@
+name: arm-task CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, staging]
+  pull_request:
+    branches: [main, staging]
+
+env:
+  AWS_REGION: ap-south-1
+  ECR_REGISTRY: 773802564338.dkr.ecr.ap-south-1.amazonaws.com
+
+jobs:
+# ── Job 1: Test & Lint ────────────────────────────────────────
+  test:
+    name: Test & Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install backend deps
+        working-directory: ./Backend
+        run: npm ci
+
+      - name: Lint backend
+        working-directory: ./Backend
+        run: npm run lint --if-present
+
+      - name: Install frontend deps
+        working-directory: ./Frontend
+        run: npm ci
+
+      - name: Lint frontend
+        working-directory: ./Frontend
+        run: npm run lint --if-present
+
+      - name: Build frontend validation
+        working-directory: ./Frontend
+        run: npm run build
+        env:
+          VITE_API_BASE_URL: http://localhost:4000/api/v1
+
+# ── Job 2: Build & Push to ECR ───────────────────────────────
+  build:
+    name: Build & Push to ECR
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    outputs:
+      image_tag: ${{ steps.tag.outputs.tag }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set image tag
+        id: tag
+        run: echo "tag=${GITHUB_SHA::8}" >> $GITHUB_OUTPUT
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build & push backend
+        run: |
+          IMAGE="$ECR_REGISTRY/arm-task-backend:${{ steps.tag.outputs.tag }}"
+          docker build -t "$IMAGE" ./Backend
+          docker push "$IMAGE"
+          docker tag "$IMAGE" "$ECR_REGISTRY/arm-task-backend:${{ github.ref_name }}-latest"
+          docker push "$ECR_REGISTRY/arm-task-backend:${{ github.ref_name }}-latest"
+
+      - name: Build & push frontend
+        run: |
+          IMAGE="$ECR_REGISTRY/arm-task-frontend:${{ steps.tag.outputs.tag }}"
+          docker build \
+            --build-arg VITE_API_BASE_URL="${{ secrets.VITE_API_BASE_URL }}" \
+            -t "$IMAGE" ./Frontend
+          docker push "$IMAGE"
+          docker tag "$IMAGE" "$ECR_REGISTRY/arm-task-frontend:${{ github.ref_name }}-latest"
+          docker push "$ECR_REGISTRY/arm-task-frontend:${{ github.ref_name }}-latest"
+
+# ── Job 3: Deploy to Staging ─────────────────────────────────
+  deploy-staging:
+    name: Deploy to Staging
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/staging'
+    environment:
+      name: staging
+      url: http://10.0.2.179:3000
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Deploy to staging via SSM
+        run: |
+          aws ssm send-command \
+            --instance-ids "i-0155b67642e886865" \
+            --document-name "AWS-RunShellScript" \
+            --region ${{ env.AWS_REGION }} \
+            --parameters commands='[
+              "aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin 773802564338.dkr.ecr.ap-south-1.amazonaws.com",
+              "cd /opt/arm-task",
+              "aws secretsmanager get-secret-value --secret-id arm-task/prod --region ap-south-1 --query SecretString --output text | jq -r '\''to_entries | map(\"\(.key)=\(.value)\") | .[]'\'' > .env",
+              "echo IMAGE_TAG=${{ needs.build.outputs.image_tag }} >> .env",
+              "echo ECR_REGISTRY=773802564338.dkr.ecr.ap-south-1.amazonaws.com >> .env",
+              "curl -sO https://raw.githubusercontent.com/RahulSinha9/Task-Management-App/${{ github.sha }}/docker-compose.yml",
+              "docker compose -f docker-compose.yml pull",
+              "docker compose -f docker-compose.yml up -d --remove-orphans",
+              "sleep 20",
+              "docker compose -f docker-compose.yml ps"
+            ]' \
+            --output text
+
+      - name: Wait for command to complete
+        run: sleep 60
+
+      - name: Verify staging health
+        run: |
+          aws ssm send-command \
+            --instance-ids "i-0155b67642e886865" \
+            --document-name "AWS-RunShellScript" \
+            --region ${{ env.AWS_REGION }} \
+            --parameters commands='["curl -sf http://localhost:4000/api/v1/healthcheck && echo HEALTHY || echo UNHEALTHY"]' \
+            --output text
+
+# ── Job 4: Deploy to Production ──────────────────────────────
+  deploy-production:
+    name: Deploy to Production
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    environment:
+      name: production
+      url: http://10.0.2.186:3000
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Deploy to production via SSM
+        run: |
+          aws ssm send-command \
+            --instance-ids "i-086c0b8e18eae424a" \
+            --document-name "AWS-RunShellScript" \
+            --region ${{ env.AWS_REGION }} \
+            --parameters commands='[
+              "PREV_TAG=$(grep IMAGE_TAG /opt/arm-task/.env | cut -d= -f2 || echo none)",
+              "echo $PREV_TAG > /opt/arm-task/.prev_tag",
+              "aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin 773802564338.dkr.ecr.ap-south-1.amazonaws.com",
+              "cd /opt/arm-task",
+              "aws secretsmanager get-secret-value --secret-id arm-task/prod --region ap-south-1 --query SecretString --output text | jq -r '\''to_entries | map(\"\(.key)=\(.value)\") | .[]'\'' > .env",
+              "echo IMAGE_TAG=${{ needs.build.outputs.image_tag }} >> .env",
+              "echo ECR_REGISTRY=773802564338.dkr.ecr.ap-south-1.amazonaws.com >> .env",
+              "curl -sO https://raw.githubusercontent.com/RahulSinha9/Task-Management-App/${{ github.sha }}/docker-compose.yml",
+              "docker compose -f docker-compose.yml pull",
+              "docker compose -f docker-compose.yml up -d --remove-orphans",
+              "sleep 20",
+              "docker compose -f docker-compose.yml ps"
+            ]' \
+            --output text
+
+      - name: Wait for command to complete
+        run: sleep 60
+
+      - name: Tag release
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const tag = `prod-${{ needs.build.outputs.image_tag }}`;
+            await github.rest.git.createRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: `refs/tags/${tag}`,
+              sha: context.sha
+            });
