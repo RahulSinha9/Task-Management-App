@@ -1,1 +1,9 @@
-.envinfra/.terraform/
+# Environment files
+.env
+*.env
+
+# Terraform
+infra/.terraform/
+infra/terraform.tfstate
+infra/terraform.tfstate.backup
+infra/*.tfvars
