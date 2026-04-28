@@ -735,3 +735,67 @@ resource "aws_lb_listener_rule" "staging_api" {
     target_group_arn = aws_lb_target_group.staging_backend.arn
   }
 }
+
+# ── App Error Log Metric Filter + Alarm ──────────────────────
+resource "aws_cloudwatch_log_metric_filter" "backend_errors" {
+  name           = "arm-task-backend-errors"
+  pattern        = "ERROR"
+  log_group_name = "/arm-task/backend"
+
+  metric_transformation {
+    name      = "BackendErrorCount"
+    namespace = "ArmTask"
+    value     = "1"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "backend_errors" {
+  alarm_name          = "arm-task-backend-errors"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "BackendErrorCount"
+  namespace           = "ArmTask"
+  period              = 60
+  statistic           = "Sum"
+  threshold           = 10
+  treat_missing_data  = "notBreaching"
+  alarm_description   = "More than 10 backend errors in 1 minute"
+  alarm_actions       = [aws_sns_topic.alerts.arn]
+}
+
+# ── Unhealthy host alarms ─────────────────────────────────────
+resource "aws_cloudwatch_metric_alarm" "unhealthy_hosts_prod" {
+  alarm_name          = "arm-task-prod-unhealthy-hosts"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "UnHealthyHostCount"
+  namespace           = "AWS/ApplicationELB"
+  period              = 60
+  statistic           = "Average"
+  threshold           = 0
+  treat_missing_data  = "notBreaching"
+  alarm_description   = "Production has unhealthy containers"
+  alarm_actions       = [aws_sns_topic.alerts.arn]
+  dimensions = {
+    LoadBalancer = aws_lb.main.arn_suffix
+    TargetGroup  = aws_lb_target_group.backend.arn_suffix
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "unhealthy_hosts_staging" {
+  alarm_name          = "arm-task-staging-unhealthy-hosts"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "UnHealthyHostCount"
+  namespace           = "AWS/ApplicationELB"
+  period              = 60
+  statistic           = "Average"
+  threshold           = 0
+  treat_missing_data  = "notBreaching"
+  alarm_description   = "Staging has unhealthy containers"
+  alarm_actions       = [aws_sns_topic.alerts.arn]
+  dimensions = {
+    LoadBalancer = aws_lb.main.arn_suffix
+    TargetGroup  = aws_lb_target_group.staging_backend.arn_suffix
+  }
+}
