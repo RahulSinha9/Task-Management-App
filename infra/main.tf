@@ -429,7 +429,7 @@ resource "aws_cloudwatch_dashboard" "main" {
         properties = {
           title   = "Disk Used %"
           region  = var.aws_region
-          metrics = [["CWAgent", "disk_used_percent", "InstanceId", aws_instance.app.id, "path", "/"]]
+          metrics = [["CWAgent", "disk_used_percent", "InstanceId", aws_instance.app.id, "path", "/", "device", "nvme0n1p1", "fstype", "ext4"]]
           period  = 300
           stat    = "Average"
           view    = "timeSeries"
