@@ -360,7 +360,7 @@ resource "aws_cloudwatch_metric_alarm" "high_disk" {
   threshold           = 90
   alarm_description   = "Disk usage above 90%"
   alarm_actions       = [aws_sns_topic.alerts.arn]
-  dimensions          = { InstanceId = aws_instance.app.id, path = "/" }
+  dimensions          = { InstanceId = aws_instance.app.id, path = "/", device = "nvme0n1p1", fstype = "ext4" }
 }
 
 resource "aws_cloudwatch_metric_alarm" "instance_status" {
