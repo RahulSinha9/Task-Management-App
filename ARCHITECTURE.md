@@ -2,67 +2,114 @@
 
 ## Network Diagram
 
-Internet
-    |
-    v
-VPC: 10.0.0.0/16 (ap-south-1)
-    |
-    |-- Public Subnet 10.0.1.0/24 (ap-south-1a)
-    |       |-- Bastion Host (13.234.115.21)
-    |       |-- NAT Gateway (outbound for private subnet)
-    |       |-- Internet Gateway
-    |
-    |-- Private Subnet 10.0.2.0/24 (ap-south-1a)
-            |-- Staging EC2 (10.0.2.179) t3.micro
-            |       |-- Docker: frontend:3000
-            |       |-- Docker: backend:4000
-            |       |-- Docker: mongodb:27017 (internal only)
-            |
-            |-- Production EC2 (10.0.2.186) t3.small
-                    |-- Docker: frontend:3000
-                    |-- Docker: backend:4000
-                    |-- Docker: mongodb:27017 (internal only)
+Internet (Users)
+        |
+        | HTTPS:443 / HTTP:80 redirect
+        v
++--------------------------------------------------+
+|  Application Load Balancer (arm-task-alb)        |
+|  Public Subnets: 10.0.1.0/24 + 10.0.3.0/24     |
+|                                                  |
+|  HTTP:80  -> redirect to HTTPS:443               |
+|  HTTPS:443                                       |
+|    staging-arm-task.devopslabx.com               |
+|      /* -> staging frontend TG (port 3000)       |
+|      /api/* -> staging backend TG (port 4000)    |
+|    arm-task.devopslabx.com                       |
+|      /* -> prod frontend TG (port 3000)          |
+|      /api/* -> prod backend TG (port 4000)       |
++--------------------------------------------------+
+        |                    |
+        v                    v SSH
++--------------------------------------------------+
+|  Private Subnet: 10.0.2.0/24                     |
+|  Staging EC2 (10.0.2.179)  Prod EC2 (10.0.2.186)|
+|  Docker: arm-task-net      Docker: arm-task-net  |
+|  [frontend  :3000]         [frontend  :3000]     |
+|  [backend   :4000]         [backend   :4000]     |
+|  [mongodb   :27017 internal only]                |
++--------------------------------------------------+
++--------------------------------------------------+
+|  Public Subnet: 10.0.1.0/24                      |
+|  NAT Gateway               Bastion 13.234.115.21 |
++--------------------------------------------------+
 
-## Supporting AWS Services
+Supporting Services:
+  ECR             -> Docker image registry
+  Secrets Manager -> arm-task/prod (all credentials)
+  CloudWatch      -> Metrics + Logs + Alarms + Dashboard
+  SNS             -> arm-task-alerts (email notifications)
+  ACM             -> devopslabx.com wildcard TLS certificate
+  IAM             -> arm-task-ec2-role (least privilege)
 
-  ECR:             773802564338.dkr.ecr.ap-south-1.amazonaws.com
-  Secrets Manager: arm-task/prod
-  CloudWatch:      Alarms + Dashboard + Log Groups
-  SNS:             arm-task-alerts (email notifications)
-  IAM:             arm-task-ec2-role (least privilege)
+## Network Traffic Flow
+
+User browser
+  -> DNS arm-task.devopslabx.com
+  -> ALB port 443 (TLS terminated)
+  -> Production EC2 port 3000 (frontend)
+  -> nginx serves React app
+  -> React calls /api/v1/*
+  -> ALB routes to EC2 port 4000 (backend)
+  -> Express queries mongodb:27017 (internal only)
 
 ## Security Groups
 
-  arm-task-alb-sg:     Allow 80, 443 from internet
-  arm-task-app-sg:     Allow 3000, 4000 from ALB; 22 from bastion
-  arm-task-mongo-sg:   Allow 27017 from app SG only
-  arm-task-bastion-sg: Allow 22 from admin IP only
-
-## CI/CD Flow
-
-  1. Developer pushes to staging branch
-  2. GitHub Actions runs lint and test
-  3. Builds Docker images and pushes to ECR
-  4. Deploys to Staging EC2 via SSM (auto)
-  5. Health check on staging
-  6. Developer pushes to main branch
-  7. Manual approval required in GitHub
-  8. Deploys to Production EC2 via SSM
-  9. Tags release prod-{sha}
+| SG Name             | Inbound                          | Purpose          |
+|---------------------|----------------------------------|------------------|
+| arm-task-alb-sg     | 80,443 from 0.0.0.0/0            | ALB              |
+| arm-task-app-sg     | 3000,4000 from ALB; 22 from bastion | App EC2       |
+| arm-task-mongo-sg   | 27017 from app SG only           | MongoDB internal |
+| arm-task-bastion-sg | 22 from admin IP /32             | Jump server      |
 
 ## Docker Networking
 
-  Network: arm-task-net (bridge driver)
-    frontend  -> proxies /api/* to backend:4000
-    backend   -> connects to mongodb:27017
-    mongodb   -> no external ports, internal only
+arm-task-net (Docker bridge)
+  frontend -> proxies /api/* to backend:4000
+  backend  -> connects to mongodb:27017
+  mongodb  -> NO host port, internal only, data on encrypted EBS
 
-## Security Design
+## MongoDB Decision - Why Containerized
 
-  No public DB:        MongoDB has no host ports exposed
-  No hardcoded secrets: AWS Secrets Manager for all credentials
-  Least privilege IAM: EC2 role allows ECR, Secrets, CloudWatch only
-  Restricted SSH:      Bastion only, port 22 from admin IP /32
-  Private app tier:    EC2 in private subnet, no public IP
-  Container security:  Non-root user in Dockerfile
-  Encrypted volumes:   EBS encrypted at rest
+1. Cost: Atlas M10 = ~$57/month. Containerized on existing EC2 = $0 extra.
+2. Security: No host port mapping. Only accessible within arm-task-net.
+3. Persistence: mongo_data volume on encrypted EBS gp3.
+4. For production scale: migrate to MongoDB Atlas or Amazon DocumentDB.
+
+## CI/CD Pipeline
+
+push to staging -> Test + Lint -> Build images -> Deploy to Staging (auto)
+push to main    -> Test + Lint -> Build images -> Deploy to Production (manual approval)
+
+Frontend image built with VITE_API_BASE_URL injected per branch:
+  staging -> https://staging-arm-task.devopslabx.com/api/v1
+  main    -> https://arm-task.devopslabx.com/api/v1
+
+## Rollback Plan
+
+Automatic: deploy script saves .prev_tag, restores if health check fails 5 times.
+
+Manual:
+  aws ssm start-session --target i-086c0b8e18eae424a --region ap-south-1
+  cd /opt/arm-task
+  PREV=$(cat .prev_tag)
+  sed -i "s/^IMAGE_TAG=.*/IMAGE_TAG=$PREV/" .env
+  docker compose -f docker-compose.yml up -d --force-recreate
+
+## IAM Least Privilege
+
+arm-task-ec2-role allows only:
+  ECR pull, Secrets Manager read (arm-task/* only),
+  CloudWatch metrics/logs write, SSM Session Manager
+
+## Cost Estimate (ap-south-1, monthly)
+
+| Resource           | Cost  |
+|--------------------|-------|
+| EC2 x3             | ~$31  |
+| ALB                | ~$18  |
+| NAT Gateway        | ~$35  |
+| EBS + ECR + CW     | ~$9   |
+| Secrets Manager    | ~$0.40|
+| ACM                | Free  |
+| Total              | ~$93  |
