@@ -98,7 +98,7 @@ jobs:
     if: github.ref == 'refs/heads/staging'
     environment:
       name: staging
-      url: http://10.0.2.179:3000
+      url: https://staging-arm-task.devopslabx.com
 
     steps:
       - name: Configure AWS credentials
@@ -151,7 +151,7 @@ jobs:
     if: github.ref == 'refs/heads/main'
     environment:
       name: production
-      url: http://10.0.2.186:3000
+      url: https://arm-task.devopslabx.com
 
     steps:
       - name: Configure AWS credentials
